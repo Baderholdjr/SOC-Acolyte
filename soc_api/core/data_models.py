@@ -42,16 +42,13 @@ class AlertResponse(BaseModel):
     severity: str
     status: str
     created_at: datetime.datetime
-    updated_at: Optional[datetime.datetime] = None # FIX: Make this field optional
+    updated_at: Optional[datetime.datetime] = None
     enrichment_data: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
 
 class AlertStatusUpdateRequest(BaseModel):
-    """
-    Defines the request body for updating an alert's status.
-    """
     status: str
 
     @field_validator('status')
@@ -60,3 +57,14 @@ class AlertStatusUpdateRequest(BaseModel):
         if v.upper() not in valid_statuses:
             raise ValueError(f'Status must be one of: {valid_statuses}')
         return v.upper()
+
+class AnonymizedAlertPayload(BaseModel):
+    """
+    This is the data structure that will be sent to the Master AI.
+    It contains no customer-specific PII.
+    """
+    anonymized_asset_id: str
+    alert_type: str
+    severity: str
+    event_time: datetime.datetime
+    raw_data: Dict[str, Any]
