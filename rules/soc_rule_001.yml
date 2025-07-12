@@ -1,0 +1,23 @@
+id: "SOC-RULE-001"
+name: "Multiple Failed Logins Detected"
+description: "Triggers when 5 or more failed logins are detected from the same source host within a 5-minute window."
+severity: "MEDIUM"
+enabled: true
+
+conditions:
+  all:
+    - field: "security_events.source_host"
+      operator: "equals"
+      value: "{source_host}"
+    - field: "security_events.raw_log"
+      operator: "contains"
+      value: "login_failed"
+    - field: "security_events.event_time"
+      operator: "greater_than_or_equal_to"
+      value: "{time_window_start}"
+
+trigger:
+  type: "count"
+  operator: "greater_than_or_equal_to"
+  value: 5
+  time_window_minutes: 5

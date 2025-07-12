@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, List
 import datetime
 import uuid
 
-# SQLAlchemy models for the database
+# ... (SQLAlchemy models remain the same)
 from sqlalchemy import Column, String, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from .database import Base
@@ -28,14 +28,18 @@ class Alert(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     enrichment_data = Column(JSONB, nullable=True)
 
-# Pydantic models for API requests/responses
+
+# --- Pydantic Models ---
+
 class LogEntry(BaseModel):
+    # ... (no changes)
     source_host: str
     log_format: str
     timestamp: datetime.datetime
     raw_log: str | Dict[str, Any]
 
 class AlertResponse(BaseModel):
+    # ... (no changes)
     id: uuid.UUID
     event_id: uuid.UUID
     rule_id: str
@@ -44,13 +48,12 @@ class AlertResponse(BaseModel):
     created_at: datetime.datetime
     updated_at: Optional[datetime.datetime] = None
     enrichment_data: Optional[Dict[str, Any]] = None
-
     class Config:
         from_attributes = True
 
 class AlertStatusUpdateRequest(BaseModel):
+    # ... (no changes)
     status: str
-
     @field_validator('status')
     def status_must_be_valid(cls, v):
         valid_statuses = ['NEW', 'INVESTIGATING', 'CLOSED']
@@ -59,17 +62,15 @@ class AlertStatusUpdateRequest(BaseModel):
         return v.upper()
 
 class AnonymizedAlertPayload(BaseModel):
+    # ... (no changes)
     anonymized_asset_id: str
     alert_type: str
     severity: str
     event_time: datetime.datetime
     raw_data: Dict[str, Any]
 
-# --- New Model for Data Packaging ---
-class InquisitorDataPackage(BaseModel):
-    """
-    Represents the full package of data to be sent to the Master AI.
-    """
-    alerts: List[AnonymizedAlertPayload]
-    # In the future, this could also include metrics from the NOC Acolyte
-    metrics: Optional[List[Any]] = None
+# New model for the summary endpoint
+class AlertSummaryResponse(BaseModel):
+    total_alerts: int
+    new_alerts: int
+    by_severity: Dict[str, int]
