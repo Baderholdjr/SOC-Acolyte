@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import datetime
 import uuid
 
@@ -59,12 +59,17 @@ class AlertStatusUpdateRequest(BaseModel):
         return v.upper()
 
 class AnonymizedAlertPayload(BaseModel):
-    """
-    This is the data structure that will be sent to the Master AI.
-    It contains no customer-specific PII.
-    """
     anonymized_asset_id: str
     alert_type: str
     severity: str
     event_time: datetime.datetime
     raw_data: Dict[str, Any]
+
+# --- New Model for Data Packaging ---
+class InquisitorDataPackage(BaseModel):
+    """
+    Represents the full package of data to be sent to the Master AI.
+    """
+    alerts: List[AnonymizedAlertPayload]
+    # In the future, this could also include metrics from the NOC Acolyte
+    metrics: Optional[List[Any]] = None
