@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional
 import datetime
 import uuid
@@ -25,29 +25,38 @@ class Alert(Base):
     severity = Column(String)
     status = Column(String, default="NEW")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     enrichment_data = Column(JSONB, nullable=True)
 
 # Pydantic models for API requests/responses
 class LogEntry(BaseModel):
-    """
-    Represents a single, generic log entry received by the Acolyte.
-    """
-    source_host: str = Field(..., description="The hostname or IP of the log source.")
-    log_format: str = Field(..., description="The format of the log, e.g., 'syslog', 'json', 'cef'.")
-    timestamp: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
-    raw_log: str | Dict[str, Any] = Field(..., description="The raw log message or JSON object.")
+    source_host: str
+    log_format: str
+    timestamp: datetime.datetime
+    raw_log: str | Dict[str, Any]
 
 class AlertResponse(BaseModel):
-    """
-    Pydantic model for returning alert data via the API.
-    """
     id: uuid.UUID
     event_id: uuid.UUID
     rule_id: str
     severity: str
     status: str
     created_at: datetime.datetime
+    updated_at: Optional[datetime.datetime] = None # FIX: Make this field optional
     enrichment_data: Optional[Dict[str, Any]] = None
 
     class Config:
-        from_attributes = True # Replaces orm_mode
+        from_attributes = True
+
+class AlertStatusUpdateRequest(BaseModel):
+    """
+    Defines the request body for updating an alert's status.
+    """
+    status: str
+
+    @field_validator('status')
+    def status_must_be_valid(cls, v):
+        valid_statuses = ['NEW', 'INVESTIGATING', 'CLOSED']
+        if v.upper() not in valid_statuses:
+            raise ValueError(f'Status must be one of: {valid_statuses}')
+        return v.upper()
