@@ -1,11 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
-from typing import List
+from typing import List, Optional
 from sqlalchemy.orm import Session
 
-from .core.data_models import LogEntry
+from .core.data_models import LogEntry, AlertResponse
 from .core import data_models as models
 from .core.database import get_db
-from .core.rules_engine import RulesEngine  # Import the new engine
+from .core.rules_engine import RulesEngine
 
 app = FastAPI(title="Talia SOC Acolyte")
 
@@ -21,7 +21,7 @@ async def root():
 @app.post("/ingest/logs", tags=["Data Ingestion"])
 async def ingest_logs(
         logs: List[LogEntry],
-        background_tasks: BackgroundTasks,  # Add dependency
+        background_tasks: BackgroundTasks,
         db: Session = Depends(get_db)
 ):
     """
@@ -47,7 +47,6 @@ async def ingest_logs(
     db.commit()
     print(f"--- Stored {events_created} new security events in the database ---")
 
-    # Trigger rules engine for each unique host in the background
     if unique_hosts:
         engine = RulesEngine(db)
         for host in unique_hosts:
@@ -55,3 +54,19 @@ async def ingest_logs(
         print(f"Queued rules engine tasks for {len(unique_hosts)} hosts.")
 
     return {"status": "success", "events_stored": events_created}
+
+
+@app.get("/alerts", tags=["Alerts"], response_model=List[AlertResponse])
+async def get_alerts(status: Optional[str] = None, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Retrieves a list of alerts from the database.
+    Can optionally filter by status (e.g., 'NEW', 'INVESTIGATING', 'CLOSED').
+    """
+    query = db.query(models.Alert)
+
+    if status:
+        query = query.filter(models.Alert.status == status.upper())
+
+    alerts = query.order_by(models.Alert.created_at.desc()).limit(limit).all()
+
+    return alerts
