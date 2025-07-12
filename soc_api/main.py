@@ -11,6 +11,7 @@ from .core.anonymizer_service import AnonymizerService
 app = FastAPI(title="Talia SOC Acolyte")
 
 
+# --- Existing Endpoints ---
 @app.get("/", tags=["Status"])
 async def root():
     return {"message": "SOC Acolyte is online."}
@@ -84,6 +85,10 @@ async def update_alert_status(
 
 @app.get("/alerts/{alert_id}/anonymized", tags=["Data Anonymization"], response_model=models.AnonymizedAlertPayload)
 async def get_anonymized_alert(alert_id: UUID, db: Session = Depends(get_db)):
+    """
+    Retrieves an alert and its source event, then returns an
+    anonymized version suitable for submission to the Master AI.
+    """
     alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found.")
@@ -96,3 +101,31 @@ async def get_anonymized_alert(alert_id: UUID, db: Session = Depends(get_db)):
     anonymized_payload = anonymizer.anonymize_alert(alert, event)
 
     return anonymized_payload
+
+
+# --- New Endpoint for Data Packaging ---
+@app.get("/inquisitor/fetch-data", tags=["Inquisitor Interface"], response_model=models.InquisitorDataPackage)
+async def fetch_data_for_inquisitor(db: Session = Depends(get_db)):
+    """
+    Gathers all new/closed alerts, anonymizes them, and packages them
+    for the Inquisitor to pick up.
+    """
+    # For now, we'll send all alerts that haven't been sent before.
+    # A more robust system would track which alerts have been submitted.
+    alerts_to_report = db.query(models.Alert).filter(
+        models.Alert.status.in_(['NEW', 'CLOSED'])
+    ).all()
+
+    if not alerts_to_report:
+        return models.InquisitorDataPackage(alerts=[])
+
+    anonymizer = AnonymizerService()
+    anonymized_payloads = []
+
+    for alert in alerts_to_report:
+        event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == alert.event_id).first()
+        if event:
+            payload = anonymizer.anonymize_alert(alert, event)
+            anonymized_payloads.append(payload)
+
+    return models.InquisitorDataPackage(alerts=anonymized_payloads)
