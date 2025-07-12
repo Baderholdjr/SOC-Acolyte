@@ -1,17 +1,26 @@
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from uuid import UUID
 
 from .core import data_models as models
-from .core.database import get_db
+from .core.database import get_db, SessionLocal
 from .core.rules_engine import RulesEngine
 from .core.anonymizer_service import AnonymizerService
 
 app = FastAPI(title="Talia SOC Acolyte")
 
 
-# --- Existing Endpoints ---
+async def run_rules_engine_task(host: str):
+    db = SessionLocal()
+    try:
+        engine = RulesEngine()
+        await engine.run_engine_for_host(db=db, source_host=host)
+    finally:
+        db.close()
+
+
 @app.get("/", tags=["Status"])
 async def root():
     return {"message": "SOC Acolyte is online."}
@@ -43,9 +52,8 @@ async def ingest_logs(
     print(f"--- Stored {events_created} new security events in the database ---")
 
     if unique_hosts:
-        engine = RulesEngine(db)
         for host in unique_hosts:
-            background_tasks.add_task(engine.run_engine_for_host, host)
+            background_tasks.add_task(run_rules_engine_task, host)
         print(f"Queued rules engine tasks for {len(unique_hosts)} hosts.")
 
     return {"status": "success", "events_stored": events_created}
@@ -83,49 +91,22 @@ async def update_alert_status(
     return alert_to_update
 
 
-@app.get("/alerts/{alert_id}/anonymized", tags=["Data Anonymization"], response_model=models.AnonymizedAlertPayload)
-async def get_anonymized_alert(alert_id: UUID, db: Session = Depends(get_db)):
+@app.get("/alerts/summary", tags=["Alerts"], response_model=models.AlertSummaryResponse)
+async def get_alert_summary(db: Session = Depends(get_db)):
     """
-    Retrieves an alert and its source event, then returns an
-    anonymized version suitable for submission to the Master AI.
+    Returns a summary of alert counts.
     """
-    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
-    if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found.")
+    total_alerts = db.query(func.count(models.Alert.id)).scalar()
+    new_alerts = db.query(func.count(models.Alert.id)).filter(models.Alert.status == 'NEW').scalar()
 
-    event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == alert.event_id).first()
-    if not event:
-        raise HTTPException(status_code=404, detail=f"Source event for alert {alert_id} not found.")
+    severity_counts = db.query(
+        models.Alert.severity, func.count(models.Alert.id)
+    ).group_by(models.Alert.severity).all()
 
-    anonymizer = AnonymizerService()
-    anonymized_payload = anonymizer.anonymize_alert(alert, event)
+    by_severity = {severity: count for severity, count in severity_counts}
 
-    return anonymized_payload
-
-
-# --- New Endpoint for Data Packaging ---
-@app.get("/inquisitor/fetch-data", tags=["Inquisitor Interface"], response_model=models.InquisitorDataPackage)
-async def fetch_data_for_inquisitor(db: Session = Depends(get_db)):
-    """
-    Gathers all new/closed alerts, anonymizes them, and packages them
-    for the Inquisitor to pick up.
-    """
-    # For now, we'll send all alerts that haven't been sent before.
-    # A more robust system would track which alerts have been submitted.
-    alerts_to_report = db.query(models.Alert).filter(
-        models.Alert.status.in_(['NEW', 'CLOSED'])
-    ).all()
-
-    if not alerts_to_report:
-        return models.InquisitorDataPackage(alerts=[])
-
-    anonymizer = AnonymizerService()
-    anonymized_payloads = []
-
-    for alert in alerts_to_report:
-        event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == alert.event_id).first()
-        if event:
-            payload = anonymizer.anonymize_alert(alert, event)
-            anonymized_payloads.append(payload)
-
-    return models.InquisitorDataPackage(alerts=anonymized_payloads)
+    return models.AlertSummaryResponse(
+        total_alerts=total_alerts,
+        new_alerts=new_alerts,
+        by_severity=by_severity
+    )

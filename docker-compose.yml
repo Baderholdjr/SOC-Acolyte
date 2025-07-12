@@ -7,6 +7,7 @@ services:
       - ./soc_api:/app/soc_api
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./rules:/app/rules  # Add this line
     depends_on:
       db_soc:
         condition: service_healthy
