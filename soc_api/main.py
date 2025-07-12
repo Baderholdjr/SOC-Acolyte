@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from uuid import UUID
+from pydantic import ValidationError
 
-from .core.data_models import LogEntry, AlertResponse
+from .core.data_models import LogEntry, AlertResponse, AlertStatusUpdateRequest
 from .core import data_models as models
 from .core.database import get_db
 from .core.rules_engine import RulesEngine
@@ -69,4 +71,37 @@ async def get_alerts(status: Optional[str] = None, limit: int = 100, db: Session
 
     alerts = query.order_by(models.Alert.created_at.desc()).limit(limit).all()
 
-    return alerts
+    # Add improved error handling to diagnose serialization issues
+    try:
+        # Pydantic will automatically try to validate the list of alerts
+        # against the response_model (List[AlertResponse]) here.
+        return alerts
+    except ValidationError as e:
+        print(f"Pydantic Response Model Validation Error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error validating alert data for API response. Details: {e}"
+        )
+
+
+@app.patch("/alerts/{alert_id}/status", tags=["Alerts"], response_model=AlertResponse)
+async def update_alert_status(
+        alert_id: UUID,
+        status_update: AlertStatusUpdateRequest,
+        db: Session = Depends(get_db)
+):
+    """
+    Updates the status of a specific alert.
+    """
+    alert_to_update = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+
+    if not alert_to_update:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+
+    alert_to_update.status = status_update.status
+    db.commit()
+    db.refresh(alert_to_update)
+
+    print(f"Updated status for alert {alert_id} to {status_update.status}")
+
+    return alert_to_update
