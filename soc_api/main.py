@@ -2,34 +2,26 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from uuid import UUID
-from pydantic import ValidationError
 
-from .core.data_models import LogEntry, AlertResponse, AlertStatusUpdateRequest
 from .core import data_models as models
 from .core.database import get_db
 from .core.rules_engine import RulesEngine
+from .core.anonymizer_service import AnonymizerService
 
 app = FastAPI(title="Talia SOC Acolyte")
 
 
 @app.get("/", tags=["Status"])
 async def root():
-    """
-    Root endpoint to confirm the SOC Acolyte is running.
-    """
     return {"message": "SOC Acolyte is online."}
 
 
 @app.post("/ingest/logs", tags=["Data Ingestion"])
 async def ingest_logs(
-        logs: List[LogEntry],
+        logs: List[models.LogEntry],
         background_tasks: BackgroundTasks,
         db: Session = Depends(get_db)
 ):
-    """
-    Receives a batch of log entries, stores them, and triggers the
-    rules engine to analyze them in the background.
-    """
     if not logs:
         raise HTTPException(status_code=400, detail="No logs provided in the request.")
 
@@ -58,12 +50,8 @@ async def ingest_logs(
     return {"status": "success", "events_stored": events_created}
 
 
-@app.get("/alerts", tags=["Alerts"], response_model=List[AlertResponse])
+@app.get("/alerts", tags=["Alerts"], response_model=List[models.AlertResponse])
 async def get_alerts(status: Optional[str] = None, limit: int = 100, db: Session = Depends(get_db)):
-    """
-    Retrieves a list of alerts from the database.
-    Can optionally filter by status (e.g., 'NEW', 'INVESTIGATING', 'CLOSED').
-    """
     query = db.query(models.Alert)
 
     if status:
@@ -71,28 +59,15 @@ async def get_alerts(status: Optional[str] = None, limit: int = 100, db: Session
 
     alerts = query.order_by(models.Alert.created_at.desc()).limit(limit).all()
 
-    # Add improved error handling to diagnose serialization issues
-    try:
-        # Pydantic will automatically try to validate the list of alerts
-        # against the response_model (List[AlertResponse]) here.
-        return alerts
-    except ValidationError as e:
-        print(f"Pydantic Response Model Validation Error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error validating alert data for API response. Details: {e}"
-        )
+    return alerts
 
 
-@app.patch("/alerts/{alert_id}/status", tags=["Alerts"], response_model=AlertResponse)
+@app.patch("/alerts/{alert_id}/status", tags=["Alerts"], response_model=models.AlertResponse)
 async def update_alert_status(
         alert_id: UUID,
-        status_update: AlertStatusUpdateRequest,
+        status_update: models.AlertStatusUpdateRequest,
         db: Session = Depends(get_db)
 ):
-    """
-    Updates the status of a specific alert.
-    """
     alert_to_update = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
 
     if not alert_to_update:
@@ -105,3 +80,19 @@ async def update_alert_status(
     print(f"Updated status for alert {alert_id} to {status_update.status}")
 
     return alert_to_update
+
+
+@app.get("/alerts/{alert_id}/anonymized", tags=["Data Anonymization"], response_model=models.AnonymizedAlertPayload)
+async def get_anonymized_alert(alert_id: UUID, db: Session = Depends(get_db)):
+    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+
+    event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == alert.event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail=f"Source event for alert {alert_id} not found.")
+
+    anonymizer = AnonymizerService()
+    anonymized_payload = anonymizer.anonymize_alert(alert, event)
+
+    return anonymized_payload
