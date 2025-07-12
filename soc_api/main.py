@@ -1,6 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from typing import List
+from sqlalchemy.orm import Session
+
 from .core.data_models import LogEntry
+from .core import data_models as models  # Corrected import
+from .core.database import get_db
 
 app = FastAPI(title="Talia SOC Acolyte")
 
@@ -14,22 +18,28 @@ async def root():
 
 
 @app.post("/ingest/logs", tags=["Data Ingestion"])
-async def ingest_logs(logs: List[LogEntry]):
+async def ingest_logs(logs: List[LogEntry], db: Session = Depends(get_db)):
     """
-    Receives a batch of log entries from various sources.
-
-    This is the primary endpoint for data ingestion. For now, it validates
-    the data and prints it. In the next step, it will be processed and stored.
+    Receives a batch of log entries, converts them to SecurityEvent objects,
+    and stores them in the database.
     """
     if not logs:
         raise HTTPException(status_code=400, detail="No logs provided in the request.")
 
-    print(f"--- Received batch of {len(logs)} logs ---")
+    events_created = 0
     for log in logs:
-        # In a real application, this is where you would send the log
-        # to a processing queue (like Kafka or RabbitMQ) or directly
-        # to a parsing and storage function.
-        print(f"Received log from {log.source_host}: {log.raw_log}")
+        # Here, we convert the incoming LogEntry into a SecurityEvent DB model
+        new_event = models.SecurityEvent(
+            source_host=log.source_host,
+            log_format=log.log_format,
+            event_time=log.timestamp,
+            raw_log=log.raw_log
+        )
+        db.add(new_event)
+        events_created += 1
 
-    return {"status": "success", "logs_received": len(logs)}
+    db.commit()
 
+    print(f"--- Stored {events_created} new security events in the database ---")
+
+    return {"status": "success", "events_stored": events_created}
