@@ -5,4 +5,31 @@ services:
       - "8001:8001"
     volumes:
       - ./soc_api:/app/soc_api
-    command: uvicorn soc_api.main:app --host 0.0.0.0 --port 8001 --reload
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      db_soc:
+        condition: service_healthy
+    command: >
+      sh -c "python -m alembic -c alembic.ini upgrade head && 
+             uvicorn soc_api.main:app --host 0.0.0.0 --port 8001 --reload"
+
+  db_soc:
+    image: postgres:14-alpine
+    container_name: db_soc
+    volumes:
+      - postgres_data_soc:/var/lib/postgresql/data/
+    ports:
+      - "5433:5432" # Expose on host port 5433
+    environment:
+      - POSTGRES_USER=user_soc
+      - POSTGRES_PASSWORD=password_soc
+      - POSTGRES_DB=soc_acolytedb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user_soc -d soc_acolytedb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data_soc:
