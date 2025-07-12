@@ -1,0 +1,8 @@
+services:
+  soc_acolyte:
+    build: .
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./soc_api:/app/soc_api
+    command: uvicorn soc_api.main:app --host 0.0.0.0 --port 8001 --reload
