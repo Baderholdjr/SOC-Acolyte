@@ -4,8 +4,8 @@ import datetime
 import uuid
 
 # SQLAlchemy models for the database
-from sqlalchemy import Column, String, DateTime, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime
+from sqlalchemy.dialects.postgresql import UUID, JSONB # Import JSONB
 from .database import Base
 
 class SecurityEvent(Base):
@@ -14,25 +14,22 @@ class SecurityEvent(Base):
     source_host = Column(String, index=True)
     log_format = Column(String)
     event_time = Column(DateTime, default=datetime.datetime.utcnow)
-    raw_log = Column(JSON)
-    # This would be populated by a parsing engine
-    parsed_data = Column(JSON, nullable=True)
+    raw_log = Column(JSONB) # Changed to JSONB
+    parsed_data = Column(JSONB, nullable=True) # Changed to JSONB
 
 class Alert(Base):
     __tablename__ = "alerts"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_id = Column(UUID(as_uuid=True), index=True)
-    rule_id = Column(String, index=True) # e.g., "SOC-RULE-001"
-    severity = Column(String) # e.g., "LOW", "MEDIUM", "CRITICAL"
-    status = Column(String, default="NEW") # NEW, INVESTIGATING, CLOSED
+    rule_id = Column(String, index=True)
+    severity = Column(String)
+    status = Column(String, default="NEW")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
+    enrichment_data = Column(JSONB, nullable=True) # New column
 
 # Pydantic models for API requests/responses
 class LogEntry(BaseModel):
-    """
-    Represents a single, generic log entry received by the Acolyte.
-    """
+    # ... (no changes to this model)
     source_host: str = Field(..., description="The hostname or IP of the log source.")
     log_format: str = Field(..., description="The format of the log, e.g., 'syslog', 'json', 'cef'.")
     timestamp: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
