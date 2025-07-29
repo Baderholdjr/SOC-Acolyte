@@ -9,8 +9,9 @@ conditions:
     - field: "security_events.source_host"
       operator: "equals"
       value: "{source_host}"
-    - field: "security_events.raw_log"
-      operator: "contains"
+    # This now targets a specific field in the parsed JSON data
+    - field: "security_events.parsed_data.action"
+      operator: "equals"
       value: "login_failed"
     - field: "security_events.event_time"
       operator: "greater_than_or_equal_to"
