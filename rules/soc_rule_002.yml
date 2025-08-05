@@ -1,0 +1,18 @@
+id: "SOC-RULE-002"
+name: "Potential Credential Dumping Detected"
+description: "Triggers when a process name commonly associated with credential dumping (e.g., mimikatz.exe) is detected."
+severity: "CRITICAL"
+enabled: true
+
+# This rule looks for a specific key-value pair in the parsed log data.
+conditions:
+  all:
+    - field: "security_events.parsed_data.process_name"
+      operator: "equals"
+      value: "mimikatz.exe"
+
+# This rule should trigger on a single event.
+trigger:
+  type: "count"
+  operator: "greater_than_or_equal_to"
+  value: 1

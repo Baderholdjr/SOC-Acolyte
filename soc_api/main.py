@@ -1,15 +1,19 @@
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
-from typing import List
+from typing import List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+from uuid import UUID
 
 from .core import data_models as models
 from .core.database import get_db, SessionLocal
 from .core.rules_engine import RulesEngine
-from .core.parsing_service import parsing_service  # Import the new service
+from .core.anonymizer_service import AnonymizerService
+from .core.cti_service import CTIService
 
 app = FastAPI(title="Talia SOC Acolyte")
 
 
+# Helper function for background tasks to ensure a fresh DB session
 async def run_rules_engine_task(host: str):
     db = SessionLocal()
     try:
@@ -19,8 +23,13 @@ async def run_rules_engine_task(host: str):
         db.close()
 
 
+# --- API Endpoints ---
+
 @app.get("/", tags=["Status"])
 async def root():
+    """
+    Root endpoint to confirm the SOC Acolyte is running.
+    """
     return {"message": "SOC Acolyte is online."}
 
 
@@ -30,6 +39,10 @@ async def ingest_logs(
         background_tasks: BackgroundTasks,
         db: Session = Depends(get_db)
 ):
+    """
+    Receives a batch of log entries, parses them, stores them, and triggers
+    the rules engine to analyze them in the background.
+    """
     if not logs:
         raise HTTPException(status_code=400, detail="No logs provided in the request.")
 
@@ -38,16 +51,14 @@ async def ingest_logs(
     for log in logs:
         unique_hosts.add(log.source_host)
 
-        # --- NEW: Call the parsing service ---
-        parsed_data = parsing_service.parse_log(log.log_format, log.raw_log)
-        # --- END NEW ---
+        parsed_data = log.raw_log if isinstance(log.raw_log, dict) else {"message": log.raw_log}
 
         new_event = models.SecurityEvent(
             source_host=log.source_host,
             log_format=log.log_format,
             event_time=log.timestamp,
             raw_log=log.raw_log,
-            parsed_data=parsed_data  # Store the parsed data
+            parsed_data=parsed_data
         )
         db.add(new_event)
         events_created += 1
@@ -62,4 +73,87 @@ async def ingest_logs(
 
     return {"status": "success", "events_stored": events_created}
 
-# ... (rest of the endpoints remain the same)
+
+@app.get("/alerts", tags=["Alerts"], response_model=List[models.AlertResponse])
+async def get_alerts(status: Optional[str] = None, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Retrieves a list of alerts from the database.
+    Can optionally filter by status (e.g., 'NEW', 'INVESTIGATING', 'CLOSED').
+    """
+    query = db.query(models.Alert)
+
+    if status:
+        query = query.filter(models.Alert.status == status.upper())
+
+    alerts = query.order_by(models.Alert.created_at.desc()).limit(limit).all()
+
+    return alerts
+
+
+@app.patch("/alerts/{alert_id}/status", tags=["Alerts"], response_model=models.AlertResponse)
+async def update_alert_status(
+        alert_id: UUID,
+        status_update: models.AlertStatusUpdateRequest,
+        db: Session = Depends(get_db)
+):
+    """
+    Updates the status of a specific alert.
+    """
+    alert_to_update = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+
+    if not alert_to_update:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+
+    alert_to_update.status = status_update.status
+    db.commit()
+    db.refresh(alert_to_update)
+
+    print(f"Updated status for alert {alert_id} to {status_update.status}")
+
+    return alert_to_update
+
+
+@app.get("/alerts/summary", tags=["Alerts"], response_model=models.AlertSummaryResponse)
+async def get_alert_summary(db: Session = Depends(get_db)):
+    """
+    Returns a summary of alert counts.
+    """
+    total_alerts = db.query(func.count(models.Alert.id)).scalar()
+    new_alerts = db.query(func.count(models.Alert.id)).filter(models.Alert.status == 'NEW').scalar()
+
+    severity_counts = db.query(
+        models.Alert.severity, func.count(models.Alert.id)
+    ).group_by(models.Alert.severity).all()
+
+    by_severity = {severity: count for severity, count in severity_counts}
+
+    return models.AlertSummaryResponse(
+        total_alerts=total_alerts,
+        new_alerts=new_alerts,
+        by_severity=by_severity
+    )
+
+
+@app.get("/inquisitor/fetch-data", tags=["Inquisitor Interface"], response_model=models.InquisitorDataPackage)
+async def fetch_data_for_inquisitor(db: Session = Depends(get_db)):
+    """
+    Gathers all new/closed alerts, anonymizes them, and packages them
+    for the Inquisitor to pick up.
+    """
+    alerts_to_report = db.query(models.Alert).filter(
+        models.Alert.status.in_(['NEW', 'CLOSED'])
+    ).all()
+
+    if not alerts_to_report:
+        return models.InquisitorDataPackage(alerts=[])
+
+    anonymizer = AnonymizerService()
+    anonymized_payloads = []
+
+    for alert in alerts_to_report:
+        event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == alert.event_id).first()
+        if event:
+            payload = anonymizer.anonymize_alert(alert, event)
+            anonymized_payloads.append(payload)
+
+    return models.InquisitorDataPackage(alerts=anonymized_payloads)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 import uuid
@@ -13,7 +13,7 @@ class SecurityEvent(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source_host = Column(String, index=True)
     log_format = Column(String)
-    event_time = Column(DateTime(timezone=True)) # Use timezone-aware DateTime
+    event_time = Column(DateTime(timezone=True))
     raw_log = Column(JSONB)
     parsed_data = Column(JSONB, nullable=True)
 
@@ -24,13 +24,12 @@ class Alert(Base):
     rule_id = Column(String, index=True)
     severity = Column(String)
     status = Column(String, default="NEW")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)) # Use timezone-aware default
-    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc)) # Use timezone-aware update
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc))
     enrichment_data = Column(JSONB, nullable=True)
 
-
 # --- Pydantic Models ---
-# ... (The rest of the Pydantic models are correct and do not need changes)
+
 class LogEntry(BaseModel):
     source_host: str
     log_format: str
@@ -51,6 +50,12 @@ class AlertResponse(BaseModel):
 
 class AlertStatusUpdateRequest(BaseModel):
     status: str
+    @field_validator('status')
+    def status_must_be_valid(cls, v):
+        valid_statuses = ['NEW', 'INVESTIGATING', 'CLOSED']
+        if v.upper() not in valid_statuses:
+            raise ValueError(f'Status must be one of: {valid_statuses}')
+        return v.upper()
 
 class AnonymizedAlertPayload(BaseModel):
     anonymized_asset_id: str
@@ -58,3 +63,12 @@ class AnonymizedAlertPayload(BaseModel):
     severity: str
     event_time: datetime
     raw_data: Dict[str, Any]
+
+class InquisitorDataPackage(BaseModel):
+    alerts: List[AnonymizedAlertPayload]
+    metrics: Optional[List[Any]] = None
+
+class AlertSummaryResponse(BaseModel):
+    total_alerts: int
+    new_alerts: int
+    by_severity: Dict[str, int]
