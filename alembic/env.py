@@ -21,7 +21,10 @@ from os.path import abspath, dirname
 sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
 from soc_api.core.database import Base
-from soc_api.core.data_models import SecurityEvent, Alert # Import your models
+# --- CORRECTED IMPORT ---
+# Import all models so Alembic can detect changes to them.
+from soc_api.core import data_models, response_actions
+# --- END CORRECTION ---
 target_metadata = Base.metadata
 
 

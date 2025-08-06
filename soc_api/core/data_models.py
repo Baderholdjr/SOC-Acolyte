@@ -6,6 +6,7 @@ import uuid
 # SQLAlchemy models for the database
 from sqlalchemy import Column, String, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 from .database import Base
 
 class SecurityEvent(Base):
@@ -27,6 +28,9 @@ class Alert(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc))
     enrichment_data = Column(JSONB, nullable=True)
+    # --- ADDED RELATIONSHIP ---
+    response_actions = relationship("ResponseAction", back_populates="alert", cascade="all, delete-orphan")
+
 
 # --- Pydantic Models ---
 
@@ -72,3 +76,23 @@ class AlertSummaryResponse(BaseModel):
     total_alerts: int
     new_alerts: int
     by_severity: Dict[str, int]
+
+# --- ADDED Pydantic Models for Response Actions ---
+class ResponseActionCreateRequest(BaseModel):
+    """
+    Defines the structure for a request to create a new response action.
+    """
+    action_type: str = Field(..., description="The type of action to perform, e.g., 'BLOCK_IP'.")
+    parameters: Optional[Dict[str, Any]] = Field(None, description="Parameters needed for the action, e.g., {'ip_address': '1.2.3.4'}.")
+
+class ResponseActionResponse(BaseModel):
+    """
+    Defines the structure for the response after creating a response action.
+    """
+    id: uuid.UUID
+    alert_id: uuid.UUID
+    action_type: str
+    status: str
+    created_at: datetime
+    class Config:
+        from_attributes = True
