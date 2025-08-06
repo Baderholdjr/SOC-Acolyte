@@ -5,10 +5,13 @@ from sqlalchemy import func
 from uuid import UUID
 
 from .core import data_models as models
+from .core import response_actions # Import the new response_actions models
 from .core.database import get_db, SessionLocal
 from .core.rules_engine import RulesEngine
 from .core.anonymizer_service import AnonymizerService
 from .core.cti_service import CTIService
+from .core.response_action_service import ResponseActionService # Import the new service
+
 
 app = FastAPI(title="Talia SOC Acolyte")
 
@@ -22,6 +25,18 @@ async def run_rules_engine_task(host: str):
     finally:
         db.close()
 
+# --- ADDED: Helper function for running response actions in the background ---
+async def run_response_action_task(action_id: UUID):
+    """
+    Ensures that the response action is executed in a new database session
+    in the background to avoid blocking the API.
+    """
+    db = SessionLocal()
+    try:
+        service = ResponseActionService(db)
+        await service.execute_action(action_id)
+    finally:
+        db.close()
 
 # --- API Endpoints ---
 
@@ -112,6 +127,38 @@ async def update_alert_status(
 
     return alert_to_update
 
+# --- ADDED: New Endpoint for Response Actions ---
+@app.post("/alerts/{alert_id}/actions", tags=["Response Actions"], response_model=models.ResponseActionResponse)
+async def trigger_response_action(
+    alert_id: UUID,
+    action_request: models.ResponseActionCreateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Creates and triggers a response action for a given alert. The action itself
+    is executed in the background.
+    """
+    # Verify the alert exists
+    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found.")
+
+    # Create the new response action record in the database
+    new_action = response_actions.ResponseAction(
+        alert_id=alert_id,
+        action_type=action_request.action_type,
+        parameters=action_request.parameters
+    )
+    db.add(new_action)
+    db.commit()
+    db.refresh(new_action)
+
+    # Schedule the action to be executed in the background
+    background_tasks.add_task(run_response_action_task, new_action.id)
+    print(f"Queued response action '{new_action.action_type}' for alert '{alert_id}'")
+
+    return new_action
 
 @app.get("/alerts/summary", tags=["Alerts"], response_model=models.AlertSummaryResponse)
 async def get_alert_summary(db: Session = Depends(get_db)):
