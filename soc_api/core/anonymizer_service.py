@@ -1,5 +1,6 @@
 import hashlib
 from . import data_models as models
+from . import response_actions as response_models
 from typing import Any, Dict
 
 
@@ -61,4 +62,31 @@ class AnonymizerService:
         )
 
         print(f"Successfully created anonymized payload for alert {alert.id}.")
+        return payload
+
+        # --- ADDED: Method to anonymize response actions ---
+
+    def anonymize_action(self, action: response_models.ResponseAction,
+                         event: models.SecurityEvent) -> models.AnonymizedResponseActionPayload:
+        """
+        Takes a ResponseAction and its source SecurityEvent and creates an
+        anonymized payload suitable for submission to the Master AI.
+        """
+        print(f"Anonymizing response action {action.id}...")
+
+        anonymized_id = self._hash_identifier(event.source_host)
+
+        # Find the execution log for this action to get the result
+        execution_log = action.executions[0] if action.executions else None
+
+        payload = models.AnonymizedResponseActionPayload(
+            anonymized_asset_id=anonymized_id,
+            alert_type=action.alert.rule_id,
+            action_type=action.action_type,
+            executed_at=action.executed_at,
+            status=execution_log.status if execution_log else "UNKNOWN",
+            result=execution_log.result if execution_log else {"error": "No execution log found"}
+        )
+
+        print(f"Successfully created anonymized payload for action {action.id}.")
         return payload

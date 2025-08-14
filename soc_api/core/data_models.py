@@ -68,8 +68,25 @@ class AnonymizedAlertPayload(BaseModel):
     event_time: datetime
     raw_data: Dict[str, Any]
 
+# --- ADDED: Pydantic Model for Anonymized Response Actions ---
+class AnonymizedResponseActionPayload(BaseModel):
+    """
+    Defines the structure for an anonymized response action sent to the Master AI.
+    """
+    anonymized_asset_id: str
+    alert_type: str # The rule_id of the parent alert
+    action_type: str
+    executed_at: datetime
+    status: str
+    result: Dict[str, Any]
+
+# --- UPDATED: InquisitorDataPackage ---
 class InquisitorDataPackage(BaseModel):
+    """
+    The complete data package sent to the Inquisitor, now including response actions.
+    """
     alerts: List[AnonymizedAlertPayload]
+    response_actions: List[AnonymizedResponseActionPayload] # ADDED
     metrics: Optional[List[Any]] = None
 
 class AlertSummaryResponse(BaseModel):
