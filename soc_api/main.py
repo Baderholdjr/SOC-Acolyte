@@ -13,6 +13,7 @@ from .core.anonymizer_service import AnonymizerService
 from .core.cti_service import CTIService
 from .core.response_action_service import ResponseActionService
 from .core.nlp_service import nlp_service
+from .core.ueba_service import UEBAService
 app = FastAPI(title="Talia SOC Acolyte")
 
 
@@ -34,6 +35,16 @@ async def run_response_action_task(action_id: UUID):
     finally:
         db.close()
 
+# --- ADDED HELPER FOR UEBA BACKGROUND TASK ---
+def run_ueba_analysis_task(event_id: UUID):
+    db = SessionLocal()
+    try:
+        event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
+        if event:
+            ueba_service = UEBAService(db)
+            ueba_service.record_activity(event)
+    finally:
+        db.close()
 
 # --- API Endpoints ---
 
@@ -60,6 +71,7 @@ async def ingest_logs(
 
     events_created = 0
     unique_hosts = set()
+    created_events = []
     for log in logs:
         unique_hosts.add(log.source_host)
 
@@ -81,6 +93,8 @@ async def ingest_logs(
             parsed_data=parsed_data
         )
         db.add(new_event)
+        db.flush()  # Use flush to assign an ID to new_event before committing
+        created_events.append(new_event)
         events_created += 1
 
     db.commit()
@@ -90,6 +104,13 @@ async def ingest_logs(
         for host in unique_hosts:
             background_tasks.add_task(run_rules_engine_task, host)
         print(f"Queued rules engine tasks for {len(unique_hosts)} hosts.")
+
+    # --- ADDED: Trigger UEBA analysis for events with user data ---
+    for event in created_events:
+        parsed_data = event.parsed_data
+        if parsed_data and ('user' in parsed_data or 'username' in parsed_data):
+            background_tasks.add_task(run_ueba_analysis_task, event.id)
+    # --- END ADDITION ---
 
     return {"status": "success", "events_stored": events_created}
 
