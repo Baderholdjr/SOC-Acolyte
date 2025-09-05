@@ -1,0 +1,7 @@
+# soc-acolyte/rules/ueba-anomaly-001.yml
+id: "UEBA-ANOMALY-001"
+name: "Anomalous User Login Time Detected"
+description: "Triggers when a user logs in at a time that deviates from their established baseline of normal activity."
+severity: "HIGH"
+enabled: true
+# Note: Conditions and triggers are handled by the UEBA service, not the standard rules engine.

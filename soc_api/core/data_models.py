@@ -1,3 +1,4 @@
+# soc-acolyte/soc_api/core/data_models.py
 from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
@@ -31,6 +32,17 @@ class Alert(Base):
     # --- ADDED RELATIONSHIP ---
     response_actions = relationship("ResponseAction", back_populates="alert", cascade="all, delete-orphan")
 
+# --- ADDED: New model for UEBA data ---
+class UserActivity(Base):
+    """
+    Stores individual user actions over time to build a behavioral baseline.
+    """
+    __tablename__ = "user_activity"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String, index=True, nullable=False)
+    action = Column(String, nullable=False)
+    source_host = Column(String, index=True)
+    event_time = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 # --- Pydantic Models ---
 
