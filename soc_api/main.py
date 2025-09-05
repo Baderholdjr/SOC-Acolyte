@@ -12,7 +12,7 @@ from .core.rules_engine import RulesEngine
 from .core.anonymizer_service import AnonymizerService
 from .core.cti_service import CTIService
 from .core.response_action_service import ResponseActionService
-
+from .core.nlp_service import nlp_service
 app = FastAPI(title="Talia SOC Acolyte")
 
 
@@ -52,18 +52,26 @@ async def ingest_logs(
         db: Session = Depends(get_db)
 ):
     """
-    Receives a batch of log entries, parses them, stores them, and triggers
-    the rules engine to analyze them in the background.
+    Receives a batch of log entries, parses them (using NLP for unstructured logs),
+    stores them, and triggers the rules engine to analyze them in the background.
     """
     if not logs:
-        raise HTTPException(status_code=400, detail="No logs provided in the request.")
+        raise HTTPException(status_code=400, detail="No logs provided.")
 
     events_created = 0
     unique_hosts = set()
     for log in logs:
         unique_hosts.add(log.source_host)
 
-        parsed_data = log.raw_log if isinstance(log.raw_log, dict) else {"message": log.raw_log}
+        # --- UPDATED PARSING LOGIC ---
+        parsed_data = {}
+        if isinstance(log.raw_log, dict):
+            # If log is already structured, use it directly
+            parsed_data = log.raw_log
+        elif isinstance(log.raw_log, str):
+            # If log is a string, use the new NLP service to parse it
+            parsed_data = await nlp_service.parse_unstructured_log(log.raw_log)
+        # --- END UPDATE ---
 
         new_event = models.SecurityEvent(
             source_host=log.source_host,
