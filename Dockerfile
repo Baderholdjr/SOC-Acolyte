@@ -12,9 +12,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application's code into the container at /app
 COPY ./soc_api /app/soc_api
+# --- ADDED LINES ---
+COPY alembic.ini .
+COPY alembic /app/alembic
+# --- END ADDED LINES ---
 
 # Expose port 8001 to the outside world (to avoid conflict with the Master AI on 8000)
 EXPOSE 8001
 
 # Command to run the application
 CMD ["uvicorn", "soc_api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+
