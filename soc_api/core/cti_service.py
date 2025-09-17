@@ -1,69 +1,40 @@
-import httpx
-from sqlalchemy.orm import Session
-from . import data_models as models # Corrected import
-import uuid
+# talia_project/soc_acolyte/soc_api/core/cti_service.py
+import os
+from typing import Dict, Any
+import virustotal_api
 
 class CTIService:
     """
-    Enriches alerts by querying external Cyber Threat Intelligence providers.
+    A service for enriching security alerts with Cyber Threat Intelligence (CTI)
+    from external sources like VirusTotal.
     """
-    # In a real application, this API key would be stored securely (e.g., environment variable)
-    ABUSEIPDB_API_KEY = "YOUR_ABUSEIPDB_API_KEY_HERE"
-    BASE_URL = "https://api.abuseipdb.com/api/v2/check"
 
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self):
+        self.virustotal = virustotal_api.VirusTotal(os.environ.get("VIRUSTOTAL_API_KEY"))
 
-    async def enrich_alert_with_ip_info(self, alert_id: uuid.UUID, ip_address: str):
+    def enrich_alert(self, alert_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Queries AbuseIPDB for information about an IP address and updates the alert.
+        Enriches an alert with CTI data.
+
+        For now, this focuses on IP address reputation, but it can be
+        expanded to include domain names, file hashes, etc.
         """
-        print(f"Starting CTI enrichment for IP: {ip_address} on alert: {alert_id}")
-
-        headers = {
-            'Accept': 'application/json',
-            'Key': self.ABUSEIPDB_API_KEY
-        }
-        querystring = {
-            'ipAddress': ip_address,
-            'maxAgeInDays': '90'
-        }
-
-        try:
-            async with httpx.AsyncClient() as client:
-                # In a real app, you would make the actual call.
-                # For this test, we will simulate the response to avoid needing a real API key.
-                # response = await client.get(self.BASE_URL, headers=headers, params=querystring)
-                # response.raise_for_status()
-                # enrichment_data = response.json()
-
-                # --- SIMULATED RESPONSE ---
-                print("SIMULATING CTI API CALL...")
-                enrichment_data = {
-                    "data": {
-                        "ipAddress": ip_address,
-                        "isPublic": True,
-                        "abuseConfidenceScore": 85,
-                        "countryCode": "CN",
-                        "usageType": "Data Center/Web Hosting/Transit",
-                        "isp": "Tencent Cloud",
-                        "domain": "tencent.com",
-                        "totalReports": 150,
-                        "lastReportedAt": "2025-07-10T19:38:55+00:00"
-                    }
+        if "source_ip" in alert_data:
+            ip_address = alert_data["source_ip"]
+            ip_reputation = self._get_ip_reputation(ip_address)
+            if ip_reputation:
+                alert_data["cti_enrichment"] = {
+                    "source_ip_reputation": ip_reputation
                 }
-                # --- END SIMULATION ---
+        return alert_data
 
-            # Find the alert in the database
-            alert_to_update = self.db.query(models.Alert).filter(models.Alert.id == alert_id).first()
-            if alert_to_update:
-                alert_to_update.enrichment_data = enrichment_data
-                self.db.commit()
-                print(f"SUCCESS: Successfully enriched alert {alert_id} with CTI data.")
-            else:
-                print(f"ERROR: Could not find alert {alert_id} to enrich.")
-
-        except httpx.HTTPStatusError as e:
-            print(f"Error querying AbuseIPDB API: {e.response.status_code} - {e.response.text}")
+    def _get_ip_reputation(self, ip_address: str) -> Dict[str, Any]:
+        """
+        Retrieves the reputation of an IP address from VirusTotal.
+        """
+        try:
+            response = self.virustotal.ip_address(ip_address)
+            return response.json()
         except Exception as e:
-            print(f"An unexpected error occurred during CTI enrichment: {e}")
+            print(f"Error querying VirusTotal for IP {ip_address}: {e}")
+            return None
