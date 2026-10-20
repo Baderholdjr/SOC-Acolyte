@@ -97,3 +97,7 @@ Lessons from this service fed the next project, [ONI](https://github.com/Baderho
 ## Author
 
 Bernard A. Aderhold Jr., DBA — [GitHub profile](https://github.com/Baderholdjr) · [LinkedIn](https://www.linkedin.com/in/bernard-aderhold-jr-dba-963ab9305)
+
+## License
+
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) — free for noncommercial use; commercial use by arrangement. © 2025–2026 Bernard A. Aderhold Jr.
