@@ -60,3 +60,6 @@ venv.bak/
 # IDE-specific
 .idea/
 .vscode/
+.env
+.idea/
+__pycache__/
